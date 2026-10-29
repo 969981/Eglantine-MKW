@@ -67,7 +67,7 @@ For information on provided development tooling, see the [Tools directory](./too
 
 ## Download
 
-You can download the latest releases from [our release page](https://git.eden-emu.dev/eden-emu/eden/releases).
+You can download the latest releases from [our release page](https://git.eden-emu.dev/Takoroka/eden-nx2/releases).
 
 Save us some bandwidth! We have [mirrors available](./docs/user/ThirdParty.md#mirrors) as well.
 
