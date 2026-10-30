@@ -315,9 +315,11 @@ struct System::Impl {
 
         // Switch 2 titles size their heap from the total memory and need the 12 GiB layout. Set it
         // as a per-game value, so RestoreGlobalState brings back the configured layout afterwards.
-        if (virtual_filesystem != nullptr &&
-            Settings::values.memory_layout_mode.GetValue() != Settings::MemoryLayout::Memory_12Gb &&
-            IsSwitch2Program(GetGameFileFromPath(virtual_filesystem, filepath))) {
+        const bool is_switch2 = virtual_filesystem != nullptr &&
+                                IsSwitch2Program(GetGameFileFromPath(virtual_filesystem, filepath));
+        Settings::SetCurrentProgramIsSwitch2(is_switch2);
+        if (is_switch2 &&
+            Settings::values.memory_layout_mode.GetValue() != Settings::MemoryLayout::Memory_12Gb) {
             LOG_INFO(Core, "Switch 2 program: using the 12 GiB memory layout");
             Settings::values.memory_layout_mode.SetGlobal(false);
             Settings::values.memory_layout_mode.SetValue(Settings::MemoryLayout::Memory_12Gb);
