@@ -194,6 +194,95 @@ SPIR-V backend, already shared by parallel boot-time builds).
 - Compare a first lap with an empty shader cache with and without the switch: frame times, pop-in,
   and any new corruption or Vulkan validation errors.
 
+## Faster translation (branch `shader-passes`, NX2_NOTES row 153)
+
+Translation itself (Maxwell code -> CFG -> IR passes -> SPIR-V) made faster, without changing
+its output. Measured offline, with no game run.
+
+### Benchmark
+
+`eden-shader-bench` (`src/shader_bench`, not built by default) loads every pipeline of a Vulkan
+disk shader cache (`vulkan.bin`) and runs, single-threaded, what `PipelineCache` runs before the
+driver compile: CFG, `TranslateProgram` (and the dual vertex merge), `ConvertLegacyToGeneric`,
+`EmitSPIRV`. No Vulkan device: the profile is a fixed one close to a Radeon RX 6000 on the AMD
+Windows driver. Per-pass times come from `Shader::PassTimer` scopes, compiled in for good: they
+only collect when a thread installs a `Totals` (in the emulator, one thread-local load per pass).
+
+```
+cmake --build build/clang --target eden-shader-bench
+eden-shader-bench <vulkan.bin> [--repeat N] [--hashes FILE] [--scale 1|2|3] [--top N] [--only INDEX]
+```
+
+The cache file is copied first (`LoadPipelines` deletes files it cannot read). Run 0 gives the
+reference output, runs 1..N are timed; the run with the lowest total is reported per pass, with
+the slowest pipelines. `--hashes` writes a CityHash64 of every emitted SPIR-V module, one line
+per pipeline: compare the files before/after a change. `--only` profiles one pipeline.
+
+### Results
+
+Two Mario Kart World caches: 5,201 pipelines / 10,270 programs (105 MB cache) and 857 pipelines
+/ 1,613 programs. One desktop PC, 1x resolution, best of 3 runs, another build running at the same
+time (a few % of noise). Big cache:
+
+| Pass | Before (ms) | After (ms) |
+| --- | ---: | ---: |
+| SsaRewrite | 2,842 | 1,758 |
+| EmitCode (SPIR-V instructions) | 1,433 | 990 |
+| TranslatePass (Maxwell -> IR) | 1,384 | 1,349 |
+| GlobalMemoryToStorageBuffer | 760 | 181 |
+| ConstantPropagation | 456 | 327 |
+| DeadCodeElimination | 406 | 244 |
+| CFG | 346 | 182 |
+| CollectShaderInfo | 205 | 186 |
+| Texture | 201 | 106 |
+| BlitConstants | 185 | 93 |
+| other passes and emission steps | 730 | 677 |
+| **Total** | **8,948** | **6,093** (-32%) |
+
+Small cache: 1,753 ms -> 914 ms (-48%). Per pipeline: the 28,000-instruction compute shader of
+row 121 went from 593 ms to 45 ms, the largest fragment shaders from 85 ms to 34 ms; the
+average pipeline from 1.72 ms to 1.17 ms.
+
+### Changes
+
+Each one keeps the emitted SPIR-V identical: the hashes of all 11,883 modules of both caches
+are the same before and after every commit.
+
+1. **SSA rewrite: unused identities dropped** (`ssa_rewrite_pass.cpp`). Trivial phis and replaced
+   register reads stayed in their blocks as Identity instructions (222,000 for 126,000 real ones
+   in the largest fragment shader) and every pass until dead code elimination walked them. They
+   are removed at the end of the pass, in the order DCE would have removed them. The read walk
+   reuses one stack instead of allocating a vector per read.
+2. **Storage buffer tracking: failed searches remembered** (`breadth_first_search.h`,
+   `global_memory_to_storage_buffer_pass.cpp`). In the row 121 shader, all 725 biased searches
+   fail after walking ~5,600 instructions each. `BreadthFirstSearchPruned` skips instructions a
+   failed search already visited (nothing reachable from them matches); the others are visited
+   in the same order, so the result is the one `BreadthFirstSearch` gives.
+3. **SSA definitions of predicates and flags in blocks** (`basic_block.h`,
+   `ssa_rewrite_pass.cpp`), like registers already were, instead of one node-based
+   `std::unordered_map` per variable (goto variables: one flat map). ~13% of a profile before.
+4. **SPIR-V constant ids remembered** (`spirv_emit_context.h`). Sirit deduplicates constants by
+   allocating and hashing a vector of their words on every call; `Const(u32/f32)` now caches the
+   id per bit pattern. Sirit would return the same id.
+5. **CFG: visited block found by lookup** (`control_flow.cpp`). `InspectVisitedBlocks` scanned all
+   blocks per label; blocks are sorted and disjoint, so it looks at the last non-empty block
+   starting at or before the label.
+6. **SSA: phis of sealed blocks created only when needed** (`ssa_rewrite_pass.cpp`). The
+   operandless phi created to break cycles is almost always trivial (222,000 of 226,000). It now
+   stays pending (block marked, operands on the side) and is only created when a cycle reads it
+   or when it merges different values, at the same place and with the same operands.
+
+Still the largest costs: the SSA walk itself (each read walks back block by block), Maxwell
+decoding and IR emission, SPIR-V emission in Sirit.
+
+### Notes
+
+- The profile is fixed: drivers that lower fp64/int64 or lack conditional barriers run passes the
+  benchmark does not (`LowerFp64ToFp32`, `LowerInt64ToInt32`, `ConditionalBarrierPass`).
+- `ObjectPool::ReleaseContents` never runs the destructors of the objects it frees (its storage
+  union has an empty destructor), so heap memory owned by IR instructions (phi operand lists
+  larger than two, `AssociatedInsts`) leaks on every build. Not changed here.
+
 ---
 
 AI disclosure: written with Claude Code (Claude Opus 5.5), reviewed and tested by a human
