@@ -18,6 +18,7 @@
 #include "shader_recompiler/frontend/maxwell/decode.h"
 #include "shader_recompiler/frontend/maxwell/indirect_branch_table_track.h"
 #include "shader_recompiler/frontend/maxwell/location.h"
+#include "shader_recompiler/pass_timer.h"
 
 namespace Shader::Maxwell::Flow {
 namespace {
@@ -191,6 +192,7 @@ CFG::CFG(Environment& env_, ObjectPool<Block>& block_pool_, Location start_addre
          bool exits_to_dispatcher_)
     : env{env_}, block_pool{block_pool_}, program_start{start_address}, exits_to_dispatcher{
                                                                             exits_to_dispatcher_} {
+    const PassTimer::Scope timer{PassTimer::Pass::Cfg};
     if (exits_to_dispatcher) {
         dispatch_block = block_pool.Create(Block{});
         dispatch_block->begin = {};

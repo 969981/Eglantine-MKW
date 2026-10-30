@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <optional>
 #include <span>
 #include <tuple>
 #include <type_traits>
@@ -17,6 +18,7 @@
 #include "shader_recompiler/backend/spirv/spirv_emit_context.h"
 #include "shader_recompiler/frontend/ir/basic_block.h"
 #include "shader_recompiler/frontend/ir/program.h"
+#include "shader_recompiler/pass_timer.h"
 
 namespace Shader::Backend::SPIRV {
 namespace {
@@ -551,8 +553,14 @@ void RewriteOpcodes(std::vector<u32>& code, std::span<const std::pair<u32, spv::
 } // Anonymous namespace
 
 std::vector<u32> EmitSPIRV(const Profile& profile, const RuntimeInfo& runtime_info, IR::Program& program, Bindings& bindings) {
+    std::optional<PassTimer::Scope> timer;
+    timer.emplace(PassTimer::Pass::EmitContext);
     EmitContext ctx{profile, runtime_info, program, bindings};
+    timer.reset();
+    timer.emplace(PassTimer::Pass::EmitCode);
     const Id main{DefineMain(ctx, program)};
+    timer.reset();
+    timer.emplace(PassTimer::Pass::EmitFinish);
     DefineEntryPoint(program, ctx, main);
     if (profile.support_float_controls) {
         ctx.AddExtension("SPV_KHR_float_controls");

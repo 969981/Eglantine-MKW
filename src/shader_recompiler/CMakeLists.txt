@@ -190,6 +190,8 @@ add_library(shader_recompiler STATIC
     ir_opt/vendor_workaround_pass.cpp
     ir_opt/verification_pass.cpp
     object_pool.h
+    pass_timer.cpp
+    pass_timer.h
     profile.h
     program_header.h
     runtime_info.h

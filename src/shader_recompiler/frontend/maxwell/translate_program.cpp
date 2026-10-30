@@ -22,9 +22,18 @@
 #include "shader_recompiler/frontend/maxwell/translate_program.h"
 #include "shader_recompiler/host_translate_info.h"
 #include "shader_recompiler/ir_opt/passes.h"
+#include "shader_recompiler/pass_timer.h"
 
 namespace Shader::Maxwell {
 namespace {
+using PassTimer::Pass;
+
+template <typename Func>
+void RunPass(Pass pass, Func&& func) {
+    const PassTimer::Scope scope{pass};
+    func();
+}
+
 IR::BlockList GenerateBlocks(const IR::AbstractSyntaxList& syntax_list) {
     size_t num_syntax_blocks{};
     for (const auto& node : syntax_list) {
@@ -335,8 +344,10 @@ IR::Program TranslateProgram(ObjectPool<IR::Inst>& inst_pool, ObjectPool<IR::Blo
 
     IR::Program program;
     program.syntax_list = BuildASL(inst_pool, block_pool, env, cfg, normalized_host_info);
-    program.blocks = GenerateBlocks(program.syntax_list);
-    program.post_order_blocks = PostOrder(program.syntax_list.front());
+    RunPass(Pass::Blocks, [&] {
+        program.blocks = GenerateBlocks(program.syntax_list);
+        program.post_order_blocks = PostOrder(program.syntax_list.front());
+    });
     program.stage = env.ShaderStage();
     program.local_memory_size = env.LocalMemorySize();
     switch (program.stage) {
@@ -371,43 +382,50 @@ IR::Program TranslateProgram(ObjectPool<IR::Inst>& inst_pool, ObjectPool<IR::Blo
     default:
         break;
     }
-    RemoveUnreachableBlocks(program);
+    RunPass(Pass::Blocks, [&] { RemoveUnreachableBlocks(program); });
 
     // Replace instructions before the SSA rewrite
     if (!normalized_host_info.support_float64) {
-        Optimization::LowerFp64ToFp32(program);
+        RunPass(Pass::LowerFp64ToFp32, [&] { Optimization::LowerFp64ToFp32(program); });
     }
     if (!normalized_host_info.support_float16) {
-        Optimization::LowerFp16ToFp32(program);
+        RunPass(Pass::LowerFp16ToFp32, [&] { Optimization::LowerFp16ToFp32(program); });
     }
     if (!normalized_host_info.support_int64) {
-        Optimization::LowerInt64ToInt32(program);
+        RunPass(Pass::LowerInt64ToInt32, [&] { Optimization::LowerInt64ToInt32(program); });
     }
     if (!normalized_host_info.support_conditional_barrier) {
-        Optimization::ConditionalBarrierPass(program);
+        RunPass(Pass::ConditionalBarrier, [&] { Optimization::ConditionalBarrierPass(program); });
     }
-    Optimization::SsaRewritePass(program);
+    RunPass(Pass::SsaRewrite, [&] { Optimization::SsaRewritePass(program); });
 
-    Optimization::ConstantPropagationPass(env, program);
+    RunPass(Pass::ConstantPropagation,
+            [&] { Optimization::ConstantPropagationPass(env, program); });
 
-    Optimization::PositionPass(env, program);
-    Optimization::BlitConstantsPass(env, program);
+    RunPass(Pass::Position, [&] { Optimization::PositionPass(env, program); });
+    RunPass(Pass::BlitConstants, [&] { Optimization::BlitConstantsPass(env, program); });
 
-    Optimization::GlobalMemoryToStorageBufferPass(program, normalized_host_info);
-    Optimization::GeometryCompactionPass(program, normalized_host_info);
-    Optimization::TexturePass(env, program, normalized_host_info);
+    RunPass(Pass::GlobalMemoryToStorageBuffer, [&] {
+        Optimization::GlobalMemoryToStorageBufferPass(program, normalized_host_info);
+    });
+    RunPass(Pass::GeometryCompaction,
+            [&] { Optimization::GeometryCompactionPass(program, normalized_host_info); });
+    RunPass(Pass::Texture,
+            [&] { Optimization::TexturePass(env, program, normalized_host_info); });
 
     if (Settings::values.resolution_info.active) {
-        Optimization::RescalingPass(program);
+        RunPass(Pass::Rescaling, [&] { Optimization::RescalingPass(program); });
     }
-    Optimization::DeadCodeEliminationPass(program);
+    RunPass(Pass::DeadCodeElimination,
+            [&] { Optimization::DeadCodeEliminationPass(program); });
     TightenOutputVertices(program);
     if (Settings::values.renderer_debug) {
-        Optimization::VerificationPass(program);
+        RunPass(Pass::Verification, [&] { Optimization::VerificationPass(program); });
     }
-    Optimization::CollectShaderInfoPass(env, program);
-    Optimization::LayerPass(program, normalized_host_info);
-    Optimization::VendorWorkaroundPass(program);
+    RunPass(Pass::CollectShaderInfo,
+            [&] { Optimization::CollectShaderInfoPass(env, program); });
+    RunPass(Pass::Layer, [&] { Optimization::LayerPass(program, normalized_host_info); });
+    RunPass(Pass::VendorWorkaround, [&] { Optimization::VendorWorkaroundPass(program); });
 
     CollectInterpolationInfo(env, program);
     AddNVNStorageBuffers(program);
@@ -417,8 +435,10 @@ IR::Program TranslateProgram(ObjectPool<IR::Inst>& inst_pool, ObjectPool<IR::Blo
 IR::Program MergeDualVertexPrograms(IR::Program& vertex_a, IR::Program& vertex_b,
                                     Environment& env_vertex_b) {
     IR::Program result{};
-    Optimization::VertexATransformPass(vertex_a);
-    Optimization::VertexBTransformPass(vertex_b);
+    RunPass(Pass::DualVertex, [&] {
+        Optimization::VertexATransformPass(vertex_a);
+        Optimization::VertexBTransformPass(vertex_b);
+    });
     for (const auto& term : vertex_a.syntax_list) {
         if (term.type != IR::AbstractSyntaxNode::Type::Return) {
             result.syntax_list.push_back(term);
@@ -439,11 +459,12 @@ IR::Program MergeDualVertexPrograms(IR::Program& vertex_a, IR::Program& vertex_b
 
     Optimization::JoinTextureInfo(result.info, vertex_b.info);
     Optimization::JoinStorageInfo(result.info, vertex_b.info);
-    Optimization::DeadCodeEliminationPass(result);
+    RunPass(Pass::DeadCodeElimination, [&] { Optimization::DeadCodeEliminationPass(result); });
     if (Settings::values.renderer_debug) {
-        Optimization::VerificationPass(result);
+        RunPass(Pass::Verification, [&] { Optimization::VerificationPass(result); });
     }
-    Optimization::CollectShaderInfoPass(env_vertex_b, result);
+    RunPass(Pass::CollectShaderInfo,
+            [&] { Optimization::CollectShaderInfoPass(env_vertex_b, result); });
     return result;
 }
 
