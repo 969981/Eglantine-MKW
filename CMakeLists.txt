@@ -293,7 +293,8 @@ if (ANDROID AND YUZU_DOWNLOAD_ANDROID_VVL)
 endif()
 
 if(EXISTS ${PROJECT_SOURCE_DIR}/hooks/pre-commit AND NOT EXISTS ${PROJECT_SOURCE_DIR}/.git/hooks/pre-commit)
-    if (EXISTS ${PROJECT_SOURCE_DIR}/.git/)
+    # In a git worktree .git is a file, not a directory
+    if (IS_DIRECTORY ${PROJECT_SOURCE_DIR}/.git)
         message(STATUS "Copying pre-commit hook")
         file(COPY hooks/pre-commit DESTINATION ${PROJECT_SOURCE_DIR}/.git/hooks)
     endif()
