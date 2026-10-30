@@ -1,3 +1,9 @@
+> **Eglantine-MKW: Mario Kart World 1.8.0 build.** This branch is Takoroka's
+> [eden-nx2](https://git.eden-emu.dev/Takoroka/eden-nx2) (experimental Switch 2 emulation) with
+> Mario Kart World 1.8.0 fixes, less shader stutter, no video memory overflow and a clean shutdown.
+> **Start here: [docs/nx2-mkw](docs/nx2-mkw/README.md)** (getting started, settings, building, changes).
+> Downloads: [Releases](https://github.com/Wael3rd/Eglantine-MKW/releases). No keys, firmware or games included.
+
 <!--
 # SPDX-FileCopyrightText: Copyright 2025 Eden Emulator Project
 # SPDX-License-Identifier: GPL-3.0-or-later
