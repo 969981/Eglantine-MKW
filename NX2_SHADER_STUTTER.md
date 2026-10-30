@@ -194,6 +194,109 @@ SPIR-V backend, already shared by parallel boot-time builds).
 - Compare a first lap with an empty shader cache with and without the switch: frame times, pop-in,
   and any new corruption or Vulkan validation errors.
 
+## Shader reuse between graphics pipelines (branch `shader-reuse`, NX2_NOTES row 152)
+
+Branch `shader-reuse`, on top of `shader-a`. **Not tested in a game yet.**
+
+### Problem
+
+Mario Kart World creates many graphics pipelines at run time that run the same programs and
+differ only in fixed function state: blending, depth, topology, vertex formats, render targets.
+`CreateGraphicsPipeline` translated the programs (control flow, `TranslateProgram`,
+`MergeDualVertexPrograms`), emitted SPIR-V and built the shader modules again for every new
+`GraphicsPipelineCacheKey`, although most of that state never reaches the shaders. The
+measurement log (`PipelineStats`, `repeat_combos`) shows how many new pipelines reuse a shader
+combination already seen.
+
+### What a pipeline now reuses
+
+Translation and emission run once per *translation key*; other pipelines with that key reuse the
+SPIR-V modules and the `Shader::Info` of the stages (`vk_shader_reuse.h`). The driver compile
+(`vkCreateGraphicsPipelines`) still runs for every pipeline: the fixed function state is there.
+
+**The translation key** (`ShaderTranslationKey`, built by `MakeShaderTranslationKey` in
+`vk_pipeline_cache.cpp`) holds what translation and emission read besides the environments:
+
+- the unique hashes of all six programs;
+- what `MakeRuntimeInfo` turns into `Shader::RuntimeInfo`, as the shaders see it: vertex attribute
+  *types* (not formats, offsets or bindings), the topology's class (points, lines, triangles,
+  adjacency) and the output topology of a generated layer passthrough geometry stage,
+  `convert_depth_mode` (-1..1 depth), `force_early_z`, `y_negate`, transform feedback layout
+  (when enabled and supported), point size (only when points are drawn or a geometry program
+  exists), tessellation primitive, spacing and winding (only with a tessellation evaluation
+  program), alpha test function and reference, dual source blending and, on MoltenVK only, the
+  render target output types (only with a fragment program);
+- the settings read by translation and the SPIR-V backend: resolution scaling (`active`,
+  `up_scale`, `down_shift`), `renderer_debug`, `disable_shader_loop_safety_checks`,
+  `fix_bloom_effects`.
+
+`MakeRuntimeInfo` and the layer passthrough now take this key instead of the pipeline key, so the
+compiler guarantees they read nothing else of the pipeline state. Profile and host info are
+constant for the pipeline cache.
+
+**Environment answers.** Translation also asks each program's environment for live GPU state:
+constant buffer words (bank 1 driver constants folded into the shader, texture handles, indirect
+branch tables), texture types and pixel formats, the viewport transform flag, HLE macro state
+and replacements. That state is in no key, and two pipelines with the same shaders can see different
+values. While translating, a `RecordingEnvironment` records every question and answer
+(`TranslationReads`), plus the environment's fixed properties (program header, stage, start
+address, texture buffer, local memory size, "proprietary driver" flag, and the passthrough mask
+of geometry programs).
+A new pipeline reuses the shaders only if its own environments give the same answers to the same
+questions. Translation being deterministic, it would then have asked the same questions and built
+the same program. Up to 4 variants are kept per translation key (say, a texture bound as 2D by one
+pipeline and as an array by another). Asking the questions again also fills the new
+environments' read log, so the disk cache entry of the new pipeline is complete.
+
+Instructions are not checked: a program is identified by its unique hash, as everywhere else in
+the shader cache.
+
+### Where it applies
+
+- **GPU thread.** When a draw needs a new pipeline whose translation key is known and whose
+  environments pass the check, `BuildNewGraphicsPipeline` builds it in place instead of queueing
+  an asynchronous translation: the driver compile goes to the pipeline workers as usual. If the
+  check fails (`reuse_rejects`), the pipeline is translated as before: on a translation worker
+  when it may be, otherwise on the GPU thread. Such a pipeline is checked twice (GPU thread, then
+  worker), and counted twice in `reuse_rejects`.
+- **Translation workers** (`shader-a`) and **disk cache replay** at boot go through the same
+  `CreateGraphicsPipeline` and reuse what fits. Two workers replaying at the same time may still
+  both translate the same shaders; the second result is not kept.
+
+The disk cache format does not change (the cache version stays 18).
+
+### Ownership and thread safety
+
+- `GraphicsPipeline` holds its modules through a `shared_ptr<const GraphicsShaderModules>`: the
+  modules live until the last pipeline using them and the reuse cache are gone. Vulkan allows
+  one shader module in several pipeline creations at once.
+- `ShaderReuseCache` is a mutex-protected map of `shared_ptr` entries, never changed once added.
+  The lock only covers the lookup; the environments are checked without it. It is declared before
+  the thread pools of the pipeline cache, so it outlives them.
+
+### Risks
+
+- **A translation input outside the key and the environment.** Anything translation or the
+  SPIR-V backend starts to read later (a new setting, a new global) must be added to
+  `ShaderTranslationKey`, or pipelines will share shaders they should not. Passes that ask the
+  environment something new are covered: every environment request is recorded.
+- **Rejects that cost reuse, not correctness.** Some answers differ where translation would
+  not: a disk cache environment reports HLE macro state only when its program found a
+  replacement, a live one whenever the draw came from an HLE macro. Shaders replayed at boot may
+  then not be reused by live pipelines. A high `reuse_rejects` shows it.
+- **More reads at the check.** Asking a live environment for a constant buffer that is not
+  enabled any more logs a soft assert, as translation itself would.
+
+### How to test
+
+- `EDEN_NX2_SHADER_REUSE=0` translates every pipeline as before (A/B).
+- The log says once whether reuse is on, then `PipelineStats` lines carry `reused=` (pipelines
+  built with an earlier pipeline's shaders), `reuse_rejects=` and `reuse NxT ms` (lookups and
+  checks). With reuse on, `translations` should drop by about the number of `reused`.
+- Compare a first lap with an empty shader cache with and without the switch: frame times,
+  pop-in, and any new visual corruption (a wrong reuse shows as an effect drawn with another
+  pipeline's vertex types, alpha test or depth convention).
+
 ---
 
 AI disclosure: written with Claude Code (Claude Opus 5.5), reviewed and tested by a human
