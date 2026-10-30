@@ -2096,6 +2096,8 @@ private:
                      words[0], words[2], words[4]);
         }
         TipcReplyWords(ctx, words);
+    }
+
     // nn::chat::gsv::CalculateRequiredBufferMemory: 1291(preference[16], u32 count), the request
     // of 1510, replies result, u64 size, u64 alignment. Auto-stubbed, the size became 0x1000 and
     // the camera pool (1211) got memory for none of its images.
