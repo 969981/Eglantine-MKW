@@ -297,6 +297,135 @@ The disk cache format does not change (the cache version stays 18).
   pop-in, and any new visual corruption (a wrong reuse shows as an effect drawn with another
   pipeline's vertex types, alpha test or depth convention).
 
+## Driver compiles from pipeline libraries (branch `shader-gpl`, NX2_NOTES row 154)
+
+Branch `shader-gpl`, on top of `shader-reuse`. **Not tested in a game yet.**
+
+### Problem
+
+With shader reuse, a new pipeline whose programs were seen before skips translation, but the
+driver still compiles the whole pipeline (`vkCreateGraphicsPipelines`): its shaders again, for
+blending, vertex formats or depth state the shaders never see. That compile runs on the pipeline
+workers and the draws needing the pipeline are skipped until it is done.
+
+### What VK_EXT_graphics_pipeline_library is
+
+The extension lets an application compile a graphics pipeline in four parts ("libraries"):
+
+| Part | Holds |
+| --- | --- |
+| vertex input interface | vertex input and input assembly state |
+| pre-rasterization shaders | vertex, tessellation and geometry stages, viewport, rasterization and tessellation state |
+| fragment shader | fragment stage, depth/stencil and multisample state |
+| fragment output interface | color blend and multisample state |
+
+A pipeline is then created from four parts. Without `VK_PIPELINE_CREATE_LINK_TIME_OPTIMIZATION_BIT_EXT`
+this "fast link" only glues compiled code together; with `graphicsPipelineLibraryFastLinking`
+the driver promises it is cheap. The price is GPU speed: the driver cannot optimize across
+stages (unused outputs, constant interpolants). DXVK uses it the same way: fast-linked pipelines
+first, optimized ones later.
+
+The RX 6900 XT with Adrenalin 25.10.30.02 exposes the extension with fast linking and
+independent interpolation decorations (`vulkaninfo`).
+
+### Design
+
+`GraphicsPipelineLibraryCache` (`vk_pipeline_library.h`) takes the complete create info
+`GraphicsPipeline::MakePipeline` built, exactly as before, and splits it into the four parts.
+Each part is compiled once and cached under a key holding **everything the driver reads from
+that part**: the values of its state structures (pointers followed, never stored), its pNext
+structures, its dynamic state list, flags, render pass and stages. Two pipelines whose part
+would be identical share it. A thread needing a part another thread is compiling waits for it
+(`std::call_once`).
+
+What the key captures, and why:
+
+- **Shader parts are per shader module set.** Eden's pipeline layout has one descriptor set
+  with the bindings of all stages. Parts linked without `VK_PIPELINE_LAYOUT_CREATE_INDEPENDENT_SETS_BIT_EXT`
+  need identically defined layouts (VUID-VkGraphicsPipelineCreateInfo-pLibraries-06613), so the
+  vertex part of one pipeline cannot be linked with a different fragment program. The
+  `GraphicsShaderModules` set (shared by `ShaderReuseCache`) stands for the layout: the
+  stages' `Shader::Info`, from which the layout is built, travel with it. The cache keeps the
+  set alive with its parts, so neither its address nor its module handles can be reused.
+- **Render pass.** Eden draws inside render passes (no dynamic rendering). All parts but the
+  vertex input one must be created with compatible render passes (VUID-...-06628): the render
+  pass handle is in their keys.
+- **Multisample state** goes to both fragment parts, which must get identical ones
+  (VUID-...-06635), and to the pre-rasterization part, which needs it (VUID-...-09039).
+- **Dynamic state.** Every part gets the whole list; a part ignores the dynamic states of state
+  it does not hold. Fixed function values made dynamic are zero in the pipeline key already
+  (`FixedPipelineState::Refresh`), so they do not split parts.
+- **Descriptor buffers**: every part has the flag when one has (VUID-VkPipelineLibraryCreateInfoKHR-pLibraries-08096).
+
+Where it is used:
+
+1. **Pipelines built for draws** (`CreateGraphicsPipeline(..., link_from_libraries = true)`):
+   on the GPU thread, translation workers and pipeline workers. The disk cache replay at boot
+   compiles whole pipelines, as before: nothing waits for them, and the `VkPipelineCache` then
+   holds what the next replay asks for.
+2. **All parts cached already**: the `GraphicsPipeline` constructor links the pipeline on the
+   GPU thread right away (`LinkFromCachedParts`) instead of queueing it on a pipeline worker, so
+   its draw is not skipped. This is the common case GPL is for: a pipeline with reused shaders
+   and a known render pass.
+3. **Some parts missing**: the build (pipeline worker, or translation worker within the
+   asynchronous translation's wait budget) compiles them, then links. Vertex input and fragment
+   output parts are small; the shader parts cost about what a whole pipeline did.
+4. **Optimized pipeline**: each fast-linked pipeline is queued on `optimize_workers` (a quarter of
+   the pipeline worker count, background priority), which compiles it whole with the code of
+   today's monolithic path. Draws recorded after it is ready bind it (`BoundPipeline`, an atomic
+   flag read on the command thread). The fast-linked pipeline stays alive with it: command
+   buffers in flight may still use it.
+
+The `VkPipelineCache` receives the parts, the links and the optimized pipelines.
+
+### Fallbacks
+
+- Extension, `graphicsPipelineLibrary`, fast linking or independent interpolation decorations
+  missing, or `EDEN_NX2_GPL=0`: the extension is not enabled, everything is compiled as before.
+- `EDEN_NX2_SHADER_REUSE=0`: libraries are not used either. Every pipeline would have its own
+  module set, compile its own shader parts and then its optimized build: twice the work.
+- Per pipeline, compiled whole (`link_fallbacks`): a pNext structure or creation flag the key
+  does not know (for example statistics capture with `renderer_debug`), no fragment program, a
+  static rasterizer discard, or a driver error while compiling a part or linking.
+- `EDEN_NX2_GPL_OPTIMIZE=0`: fast-linked pipelines are kept, no background compiles.
+
+### Risks
+
+- **Driver bugs in the GPL path.** Linked pipelines are a separate driver path. Corruption that
+  goes away with `EDEN_NX2_GPL=0` (or appears only for the first seconds of a new effect, until
+  the optimized pipeline replaces the linked one) points there.
+- **More CPU work.** A new shader set compiles its shader parts, then its optimized pipeline in
+  the background: about twice today's driver work for pipelines whose shaders are used once.
+  The gain comes from shader sets used by several pipelines (`repeat_combos`, `library_hits`).
+- **GPU speed until the swap**: fast-linked pipelines can be slower; if frame times stay high
+  with many `link` and few `optimized`, the optimizer has a backlog.
+- **Memory**: parts are never evicted, and each optimized pipeline keeps its fast-linked one.
+- **Pipeline lifetime**: optimized builds point at their `GraphicsPipeline`, which, like the
+  queued pipeline worker builds, must not be destroyed before shutdown. Nothing destroys them
+  today.
+
+### What is left
+
+- Shader parts are per render pass and per shader set. Dynamic rendering (no render pass in the
+  parts) and independent-set layouts (one set per stage) would let a vertex part serve other
+  fragment programs and render targets: much larger changes.
+- Shader parts are only compiled when a pipeline needs them. Compiling them as soon as a shader
+  set is translated, before its first pipeline, is the next step DXVK takes.
+- No eviction of parts; no priority between optimized builds.
+
+### How to test
+
+- `EDEN_NX2_GPL=0` turns it off entirely (A/B); `EDEN_NX2_GPL_OPTIMIZE=0` keeps the linked
+  pipelines.
+- The log says at boot whether the extension is used (with fast linking and independent
+  interpolation), then whether pipelines are linked and how many optimizer threads run.
+  `PipelineStats` lines end with `gpl: library NxT ms` (parts compiled), `library_hits=` (parts
+  found compiled), `link NxT ms` (fast links), `link_fallbacks=`, `optimize NxT ms` and
+  `optimized=` (pipelines replaced), and role `opt` for the optimizer threads.
+- Compare a first lap with an empty shader cache with and without `EDEN_NX2_GPL=0`: frame
+  times, pop-in (skipped draws should drop where `library_hits` is high), and corruption or
+  Vulkan validation errors.
+
 ---
 
 AI disclosure: written with Claude Code (Claude Opus 5.5), reviewed and tested by a human
