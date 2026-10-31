@@ -1,0 +1,128 @@
+name: Build and release Eglantine-MKW Windows x64
+
+on:
+  push:
+    branches:
+      - release-c
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: eglantine-mkw-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-x64:
+    runs-on: windows-2022
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout source and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install CMake, Ninja and Qt installer
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "cmake>=3.31,<4" ninja aqtinstall
+          cmake --version
+          ninja --version
+
+      - name: Install Qt 6.8.3 for MSVC 2022
+        run: |
+          python -m aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 -m qtcharts -O C:\Qt
+          "C:\Qt\6.8.3\msvc2022_64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install Vulkan SDK 1.4.341.1
+        run: |
+          $sdk = "C:\VulkanSDK\1.4.341.1"
+          if (-not (Test-Path "$sdk\Bin\glslc.exe")) {
+            $installer = Join-Path $env:RUNNER_TEMP "vulkan-sdk.exe"
+            Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/1.4.341.1/windows/vulkansdk-windows-X64-1.4.341.1.exe" -OutFile $installer
+            $process = Start-Process -FilePath $installer -ArgumentList @("--root", $sdk, "--accept-licenses", "--default-answer", "--confirm-command", "install") -Wait -PassThru
+            if ($process.ExitCode -ne 0) { throw "Vulkan SDK install failed with exit code $($process.ExitCode)" }
+          }
+          "VULKAN_SDK=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "$sdk\Bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Configure Visual Studio C++ tools
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Locate clang-cl
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products "*" -property installationPath
+          $clangDir = Join-Path $vs "VC\Tools\Llvm\x64\bin"
+          if (Test-Path (Join-Path $clangDir "clang-cl.exe")) {
+            $clangDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          } elseif (-not (Get-Command clang-cl -ErrorAction SilentlyContinue)) {
+            throw "clang-cl is not installed on this runner"
+          }
+
+      - name: Configure Release (clang-cl / Qt / Vulkan)
+        run: |
+          cmake -S . -B build/clang -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl `
+            -DBUILD_TESTING=OFF -DYUZU_TESTS=OFF -DYUZU_CMD=ON `
+            -DYUZU_ROOM=OFF -DYUZU_ROOM_STANDALONE=OFF `
+            -DYUZU_USE_BUNDLED_QT=OFF -DCMAKE_PREFIX_PATH=C:/Qt/6.8.3/msvc2022_64 `
+            -DYUZU_USE_BUNDLED_SDL3=ON -DENABLE_UPDATE_CHECKER=OFF `
+            -DUSE_DISCORD_PRESENCE=OFF -DENABLE_WERROR=OFF
+
+      - name: Build Qt frontend and CLI
+        run: cmake --build build/clang --target yuzu yuzu-cmd --parallel 4
+
+      - name: Deploy Qt runtime and package ZIP
+        run: |
+          $bin = Join-Path $PWD "build/clang/bin"
+          if (-not (Test-Path "$bin/eden.exe")) { throw "eden.exe was not produced" }
+          & "C:\Qt\6.8.3\msvc2022_64\bin\windeployqt.exe" --release --no-translations --no-compiler-runtime "$bin/eden.exe"
+          if ($LASTEXITCODE -ne 0) { throw "windeployqt failed" }
+          $pkg = Join-Path $env:RUNNER_TEMP "Eglantine-MKW-Windows-x64"
+          New-Item -ItemType Directory -Force -Path $pkg | Out-Null
+          Copy-Item -Path "$bin/*" -Destination $pkg -Recurse -Force
+          Copy-Item LICENSE.txt -Destination "$pkg/LICENSE.txt"
+          @"
+          Eglantine-MKW experimental Switch 2 emulator build.
+          Source: https://github.com/969981/Eglantine-MKW
+          Branch: release-c
+          Commit: ${env:GITHUB_SHA}
+          No keys, firmware, or commercial games are included.
+          Use your own legally obtained dumps.
+          "@ | Set-Content -Path "$pkg/BUILD-INFO.txt"
+          Compress-Archive -Path "$pkg/*" -DestinationPath "$env:GITHUB_WORKSPACE/Eglantine-MKW-Windows-x64.zip" -CompressionLevel Optimal
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Eglantine-MKW-Windows-x64
+          path: Eglantine-MKW-Windows-x64.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: mkw-windows-${{ github.run_number }}-${{ github.run_attempt }}
+          target_commitish: ${{ github.sha }}
+          name: Eglantine-MKW Windows x64 (build ${{ github.run_number }})
+          prerelease: true
+          body: |
+            Automated experimental Windows x64 build from release-c.
+            Commit: ${{ github.sha }}
+            Includes eden.exe, CLI and Qt runtime. No keys, firmware or game files.
+          files: Eglantine-MKW-Windows-x64.zip
+          fail_on_unmatched_files: true
