@@ -1,0 +1,211 @@
+name: Eglantine nx2 | Independent upstream sync and release
+
+# This reusable workflow lives ONLY in the dedicated Eglantine nx2 branch.
+# GitHub's scheduler on the default branch delegates here; no MKW source is touched.
+on:
+  workflow_call:
+    inputs:
+      force_build:
+        type: boolean
+        required: false
+        default: false
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: "Rebuild even if a release for this exact upstream commit exists"
+        type: boolean
+        default: false
+
+concurrency:
+  group: eglantine-nx2-independently-synced-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    name: Mirror Eglantine nx2 source (exclude upstream CI workflows)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    outputs:
+      source_sha: ${{ steps.check.outputs.source_sha }}
+      mirror_sha: ${{ steps.check.outputs.mirror_sha }}
+      tag: ${{ steps.check.outputs.tag }}
+      should_build: ${{ steps.check.outputs.should_build }}
+      changed: ${{ steps.check.outputs.changed }}
+    steps:
+      - name: Checkout the dedicated Eglantine source branch
+        uses: actions/checkout@v4
+        with:
+          ref: upstream-eglantine-nx2
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Fetch upstream, make safe snapshot, and detect unpublished source
+        id: check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE_BUILD: ${{ inputs.force_build || 'false' }}
+        run: |
+          set -euo pipefail
+          mirror_branch="upstream-eglantine-nx2"
+          mirror_ref="refs/heads/$mirror_branch"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Explicit checkout protects the original historical MKW default branch.
+          test "$(git branch --show-current)" = "$mirror_branch"
+          previous_sha="$(git rev-parse HEAD)"
+          before_source="$(cat .upstream-eglantine.sha 2>/dev/null || true)"
+          git remote add eglantine-upstream https://github.com/Djihads80/Eglantine.git
+          git fetch --no-tags eglantine-upstream refs/heads/nx2
+          source_sha="$(git rev-parse FETCH_HEAD)"
+          git cat-file -e "${source_sha}^{commit}"
+
+          # Keep this branch's trusted workflow outside upstream-controlled content.
+          workflow_backup="$(mktemp)"
+          git show "HEAD:.github/workflows/eglantine-nx2-autosync.yml" > "$workflow_backup"
+          test -s "$workflow_backup"
+
+          # Git plumbing retains the source files, file permissions and submodules.
+          # The upstream's own workflow files are excluded because GITHUB_TOKEN
+          # cannot update workflow files without the elevated workflows scope.
+          git read-tree --reset -u "$source_sha"
+          git rm -r -f --cached --ignore-unmatch .github/workflows
+          rm -rf .github/workflows
+          mkdir -p .github/workflows
+          cp "$workflow_backup" .github/workflows/eglantine-nx2-autosync.yml
+          printf '%s\\n' "$source_sha" > .upstream-eglantine.sha
+          git add -f .upstream-eglantine.sha .github/workflows/eglantine-nx2-autosync.yml
+          if [ "$(git ls-files .github/workflows | wc -l)" -ne 1 ]; then
+            echo "::error::Unexpected workflow files present in independent branch."
+            exit 1
+          fi
+
+          changed=false
+          if ! git diff --cached --quiet; then
+            git commit -m "Sync Eglantine nx2 $source_sha (preserve isolated CI)"
+            # A normal fast-forward: no force push and no modifications to MKW.
+            git push origin "HEAD:$mirror_ref"
+            changed=true
+          fi
+          if [ "$before_source" != "$source_sha" ] && [ "$changed" = false ]; then
+            echo "::error::Upstream changed but the source mirror did not advance."
+            exit 1
+          fi
+          mirror_sha="$(git rev-parse HEAD)"
+          short_sha="$(printf '%.12s' "$source_sha")"
+          tag="eglantine-nx2-$short_sha"
+          published=false
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            published=true
+          fi
+          should_build=false
+          if [ "$published" = false ] || [ "$FORCE_BUILD" = true ]; then
+            should_build=true
+          fi
+          {
+            echo "source_sha=$source_sha"
+            echo "mirror_sha=$mirror_sha"
+            echo "tag=$tag"
+            echo "changed=$changed"
+            echo "should_build=$should_build"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "## Eglantine nx2 synchronization"
+            echo "- Source: `Djihads80/Eglantine@nx2`"
+            echo "- Upstream commit: `$source_sha`"
+            echo "- Mirror commit: `$mirror_sha`"
+            echo "- Mirror branch: `$mirror_branch`"
+            echo "- Previous mirror SHA: `${previous_sha:-none}`"
+            echo "- Source snapshot changed: `$changed`"
+            echo "- Upstream CI excluded; independent workflow retained"
+            echo "- Release: `$tag` (already published: `$published`)"
+            echo "- Build requested: `$should_build`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  windows:
+    name: Build upstream Windows x64
+    needs: sync
+    if: needs.sync.outputs.should_build == 'true'
+    permissions:
+      contents: read
+    uses: Djihads80/Eglantine/.github/workflows/build-windows.yml@nx2
+    with:
+      # Build the mirrored source commit; it retains code, submodules and tools.
+      sha: ${{ needs.sync.outputs.mirror_sha }}
+      version: ${{ needs.sync.outputs.source_sha }}
+      refspec: nx2
+      tag: ${{ needs.sync.outputs.tag }}
+      release: true
+      nightly: true
+      pgo: none
+
+  publish:
+    name: Publish validated Eglantine nx2 prerelease
+    needs: [sync, windows]
+    if: needs.windows.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: ${{ needs.sync.outputs.source_sha }}
+      MIRROR_SHA: ${{ needs.sync.outputs.mirror_sha }}
+      RELEASE_TAG: ${{ needs.sync.outputs.tag }}
+    steps:
+      - name: Download Windows build
+        uses: actions/download-artifact@v4
+        with:
+          name: eglantine-windows-x86_64-${{ needs.sync.outputs.mirror_sha }}
+          path: dist/bin
+
+      - name: Verify and package Windows portable binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/bin/eglantine.exe
+          test -s dist/bin/eden-cli.exe
+          cat > dist/bin/BUILD-INFO.txt <<EOF
+          Experimental Eglantine nx2 Windows x64 build.
+          Upstream commit: $SOURCE_SHA
+          Mirrored source commit: $MIRROR_SHA
+          Upstream: https://github.com/Djihads80/Eglantine
+          Mirrored source: https://github.com/$GITHUB_REPOSITORY/tree/upstream-eglantine-nx2
+          No games, firmware, or encryption keys are included.
+          EOF
+          mkdir -p release-assets
+          (cd dist/bin && zip -q -r ../../release-assets/Eglantine-nx2-Windows-x64.zip .)
+          test -s release-assets/Eglantine-nx2-Windows-x64.zip
+
+      - name: Publish prerelease only after build succeeds
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<EOF
+          Automated experimental Eglantine nx2 build from
+          [upstream $SOURCE_SHA](https://github.com/Djihads80/Eglantine/commit/$SOURCE_SHA).
+
+          Source snapshot: [mirror $MIRROR_SHA](https://github.com/$GITHUB_REPOSITORY/commit/$MIRROR_SHA).
+          Upstream CI workflow files are not mirrored; this repository manages its own automation.
+          Historical Eglantine-MKW development branches are left unchanged.
+
+          Windows x64 portable ZIP includes GUI, CLI and Qt runtime.
+          No commercial games, firmware or encryption keys are included.
+          EOF
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$RELEASE_TAG" --notes-file release-notes.md --prerelease --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$RELEASE_TAG" release-assets/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$MIRROR_SHA" \
+              --title "Eglantine nx2 $SOURCE_SHA (Windows x64)" \
+              --notes-file release-notes.md --prerelease
+          fi
+          echo "Published https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
