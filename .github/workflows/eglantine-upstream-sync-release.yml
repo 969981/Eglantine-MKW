@@ -1,0 +1,173 @@
+name: Eglantine | Sync nx2 and publish Windows builds
+
+# Runs on the repository default branch. Never overwrites the historical MKW branches.
+on:
+  schedule:
+    - cron: "13,43 * * * *"
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: "Rebuild and replace the release even if this upstream commit was published"
+        type: boolean
+        default: false
+  push:
+    branches:
+      - 2ndAdjustmentVulkanV3-STOP_FORCE_PUSHING_CAMILLE
+    paths:
+      - .github/workflows/eglantine-upstream-sync-release.yml
+
+concurrency:
+  group: eglantine-upstream-nx2-sync-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    name: Mirror Djihads80/Eglantine nx2 without changing MKW
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.check.outputs.sha }}
+      tag: ${{ steps.check.outputs.tag }}
+      should_build: ${{ steps.check.outputs.should_build }}
+      changed: ${{ steps.check.outputs.changed }}
+    steps:
+      - name: Checkout trusted default-branch automation
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Fetch upstream and fast-forward separate mirror branch
+        id: check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE_BUILD: ${{ inputs.force_build || 'false' }}
+        run: |
+          set -euo pipefail
+          mirror_ref="refs/heads/upstream-eglantine-nx2"
+          git remote add eglantine-upstream https://github.com/Djihads80/Eglantine.git
+          git fetch --no-tags eglantine-upstream refs/heads/nx2
+          source_sha="$(git rev-parse FETCH_HEAD)"
+          test -n "$source_sha"
+          git cat-file -e "${source_sha}^{commit}"
+          previous_sha="$(git ls-remote origin "$mirror_ref" | awk '{print $1}')"
+          changed=false
+          if [ "$previous_sha" != "$source_sha" ]; then
+            # Non-force push. If upstream rewrites history, fail instead of erasing
+            # the prior mirror. No local MKW branch is ever modified.
+            git push origin "${source_sha}:${mirror_ref}"
+            changed=true
+          fi
+          short_sha="$(printf '%.12s' "$source_sha")"
+          tag="eglantine-nx2-$short_sha"
+          published=false
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            published=true
+          fi
+          should_build=false
+          if [ "$published" = false ] || [ "$FORCE_BUILD" = true ]; then
+            should_build=true
+          fi
+          {
+            echo "sha=$source_sha"
+            echo "tag=$tag"
+            echo "changed=$changed"
+            echo "should_build=$should_build"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "## Eglantine nx2 sync"
+            echo "- Upstream: `Djihads80/Eglantine@nx2`"
+            echo "- Source commit: `$source_sha`"
+            echo "- Previous mirror: `${previous_sha:-none}`"
+            echo "- Mirror branch: `upstream-eglantine-nx2`"
+            echo "- Mirror changed: `$changed`"
+            echo "- Release: `$tag`"
+            echo "- Release already exists: `$published`"
+            echo "- Build requested: `$should_build`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  windows:
+    name: Eglantine Windows x64 (upstream build)
+    needs: sync
+    if: needs.sync.outputs.should_build == 'true'
+    permissions:
+      contents: read
+    # Reuse the upstream compiler/dependency recipe instead of outdated MKW CI.
+    uses: Djihads80/Eglantine/.github/workflows/build-windows.yml@nx2
+    with:
+      sha: ${{ needs.sync.outputs.sha }}
+      version: ${{ needs.sync.outputs.sha }}
+      refspec: nx2
+      tag: ${{ needs.sync.outputs.tag }}
+      release: true
+      nightly: true
+      pgo: none
+
+  publish:
+    name: Publish Eglantine nx2 prerelease after successful build
+    needs: [sync, windows]
+    if: needs.windows.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: ${{ needs.sync.outputs.sha }}
+      RELEASE_TAG: ${{ needs.sync.outputs.tag }}
+    steps:
+      - name: Download successfully built upstream Windows binary
+        uses: actions/download-artifact@v4
+        with:
+          name: eglantine-windows-x86_64-${{ needs.sync.outputs.sha }}
+          path: dist/bin
+
+      - name: Validate and package portable Windows x64 release
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/bin/eglantine.exe
+          test -s dist/bin/eden-cli.exe
+          cat > dist/bin/BUILD-INFO.txt <<EOF
+          Experimental Eglantine nx2 Windows x64 build.
+          Upstream: https://github.com/Djihads80/Eglantine/tree/nx2
+          Upstream commit: $SOURCE_SHA
+          Mirror: https://github.com/$GITHUB_REPOSITORY/tree/upstream-eglantine-nx2
+          No commercial games, firmware or keys are included.
+          EOF
+          mkdir -p release-assets
+          (cd dist/bin && zip -q -r "../../release-assets/Eglantine-nx2-Windows-x64.zip" .)
+          test -s release-assets/Eglantine-nx2-Windows-x64.zip
+
+      - name: Publish release for exact upstream commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<EOF
+          Automatic experimental Eglantine nx2 build based on
+          [Djihads80/Eglantine@$SOURCE_SHA](https://github.com/Djihads80/Eglantine/commit/$SOURCE_SHA).
+
+          This project mirrors upstream into `upstream-eglantine-nx2` and
+          intentionally leaves the historical Eglantine-MKW branches unchanged.
+
+          Windows x64 portable archive includes the emulator, CLI and Qt runtime.
+          No commercial game files, firmware or encryption keys are distributed.
+          EOF
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$RELEASE_TAG" --notes-file release-notes.md --prerelease --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$RELEASE_TAG" release-assets/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$SOURCE_SHA" \
+              --title "Eglantine nx2 $SOURCE_SHA (Windows x64)" \
+              --notes-file release-notes.md --prerelease
+          fi
+          echo "Published https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
