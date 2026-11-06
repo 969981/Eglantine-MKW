@@ -116,15 +116,15 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           {
             echo "## Eglantine nx2 synchronization"
-            echo "- Source: `Djihads80/Eglantine@nx2`"
-            echo "- Upstream commit: `$source_sha`"
-            echo "- Mirror commit: `$mirror_sha`"
-            echo "- Mirror branch: `$mirror_branch`"
-            echo "- Previous mirror SHA: `${previous_sha:-none}`"
-            echo "- Source snapshot changed: `$changed`"
+            echo "- Source: Djihads80/Eglantine@nx2"
+            echo "- Upstream commit: $source_sha"
+            echo "- Mirror commit: $mirror_sha"
+            echo "- Mirror branch: $mirror_branch"
+            echo "- Previous mirror SHA: ${previous_sha:-none}"
+            echo "- Source snapshot changed: $changed"
             echo "- Upstream CI excluded; independent workflow retained"
-            echo "- Release: `$tag` (already published: `$published`)"
-            echo "- Build requested: `$should_build`"
+            echo "- Release: $tag (already published: $published)"
+            echo "- Build requested: $should_build"
           } >> "$GITHUB_STEP_SUMMARY"
 
   windows:
