@@ -4,6 +4,11 @@ name: Eglantine | Schedule isolated nx2 branch
 # This tiny scheduler delegates all sync/build/release logic to the dedicated branch.
 # It makes no modifications to any MKW source files or historical branches.
 on:
+  push:
+    branches:
+      - 2ndAdjustmentVulkanV3-STOP_FORCE_PUSHING_CAMILLE
+    paths:
+      - .github/workflows/eglantine-upstream-sync-release.yml
   schedule:
     - cron: "13,43 * * * *"
   workflow_dispatch:
