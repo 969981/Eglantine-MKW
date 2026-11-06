@@ -78,7 +78,7 @@ jobs:
           rm -rf .github/workflows
           mkdir -p .github/workflows
           cp "$workflow_backup" .github/workflows/eglantine-nx2-autosync.yml
-          printf '%s\\n' "$source_sha" > .upstream-eglantine.sha
+          printf '%s\n' "$source_sha" > .upstream-eglantine.sha
           git add -f .upstream-eglantine.sha .github/workflows/eglantine-nx2-autosync.yml
           if [ "$(git ls-files .github/workflows | wc -l)" -ne 1 ]; then
             echo "::error::Unexpected workflow files present in independent branch."
