@@ -60,7 +60,7 @@ jobs:
           test "$(git branch --show-current)" = "$mirror_branch"
           previous_sha="$(git rev-parse HEAD)"
           before_source="$(cat .upstream-eglantine.sha 2>/dev/null || true)"
-          git remote add eglantine-upstream https://github.com/Djihads80/Eglantine.git
+          git remote add eglantine-upstream https://github.com/Eglantine-Community/Eglantine.git
           git fetch --no-tags eglantine-upstream refs/heads/nx2
           source_sha="$(git rev-parse FETCH_HEAD)"
           git cat-file -e "${source_sha}^{commit}"
@@ -116,7 +116,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           {
             echo "## Eglantine nx2 synchronization"
-            echo "- Source: Djihads80/Eglantine@nx2"
+            echo "- Source: Eglantine-Community/Eglantine@nx2"
             echo "- Upstream commit: $source_sha"
             echo "- Mirror commit: $mirror_sha"
             echo "- Mirror branch: $mirror_branch"
@@ -133,7 +133,7 @@ jobs:
     if: needs.sync.outputs.should_build == 'true'
     permissions:
       contents: read
-    uses: Djihads80/Eglantine/.github/workflows/build-windows.yml@nx2
+    uses: Eglantine-Community/Eglantine/.github/workflows/build-windows.yml@nx2
     with:
       # Build the mirrored source commit; it retains code, submodules and tools.
       sha: ${{ needs.sync.outputs.mirror_sha }}
@@ -175,7 +175,7 @@ jobs:
           Experimental Eglantine nx2 Windows x64 build.
           Upstream commit: $SOURCE_SHA
           Mirrored source commit: $MIRROR_SHA
-          Upstream: https://github.com/Djihads80/Eglantine
+          Upstream: https://github.com/Eglantine-Community/Eglantine
           Mirrored source: https://github.com/$GITHUB_REPOSITORY/tree/upstream-eglantine-nx2
           No games, firmware, or encryption keys are included.
           EOF
@@ -189,7 +189,7 @@ jobs:
           set -euo pipefail
           cat > release-notes.md <<EOF
           Automated experimental Eglantine nx2 build from
-          [upstream $SOURCE_SHA](https://github.com/Djihads80/Eglantine/commit/$SOURCE_SHA).
+          [upstream $SOURCE_SHA](https://github.com/Eglantine-Community/Eglantine/commit/$SOURCE_SHA).
 
           Source snapshot: [mirror $MIRROR_SHA](https://github.com/$GITHUB_REPOSITORY/commit/$MIRROR_SHA).
           Upstream CI workflow files are not mirrored; this repository manages its own automation.
