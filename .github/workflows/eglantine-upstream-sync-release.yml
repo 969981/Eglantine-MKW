@@ -27,6 +27,8 @@ jobs:
     permissions:
       contents: write
       actions: read
+    # Delegate to the reviewed independent branch. Its nested upstream build
+    # now uses the canonical Eglantine-Community repository after transfer.
     uses: 969981/Eglantine-MKW/.github/workflows/eglantine-nx2-autosync.yml@upstream-eglantine-nx2
     with:
       force_build: ${{ inputs.force_build || false }}
