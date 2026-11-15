@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright 2026 Eglantine Emulator Project
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 # SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -19,7 +22,9 @@ set(SHADER_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/bc_encoder.comp
     ${CMAKE_CURRENT_SOURCE_DIR}/blit_color_float.frag
     ${CMAKE_CURRENT_SOURCE_DIR}/blit_color_srgb_to_linear.frag
+    ${CMAKE_CURRENT_SOURCE_DIR}/blit_color_square.frag
     ${CMAKE_CURRENT_SOURCE_DIR}/block_linear_unswizzle_2d.comp
+    ${CMAKE_CURRENT_SOURCE_DIR}/vulkan_plain_unswizzle.comp
     ${CMAKE_CURRENT_SOURCE_DIR}/blit_color_msaa.frag
     ${CMAKE_CURRENT_SOURCE_DIR}/blit_depth.frag
     ${CMAKE_CURRENT_SOURCE_DIR}/blit_depth_msaa.frag
@@ -99,6 +104,7 @@ set(SHADER_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/fsr3_optical_flow.comp
     ${CMAKE_CURRENT_SOURCE_DIR}/fsr3_frame_interpolation.comp
     ${CMAKE_CURRENT_SOURCE_DIR}/dlss_network_probe.comp
+    ${CMAKE_CURRENT_SOURCE_DIR}/camera_motion_vectors.comp
 )
 
 if (HAIKUOS)

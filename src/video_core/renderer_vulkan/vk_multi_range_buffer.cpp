@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eglantine Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -206,6 +209,10 @@ void MultiRangeBufferCache::DrainRetired(Scheduler& scheduler) {
     }
 }
 
+void MultiRangeBufferCache::TickFrame(Scheduler& scheduler) {
+    DrainRetired(scheduler);
+}
+
 MultiRangeRef MultiRangeBufferCache::Get(const Device& device, Scheduler& scheduler,
                                          MemoryAllocator& memory_allocator, u64 key,
                                          std::span<const MultiRangeSource> sources,
@@ -248,14 +255,12 @@ MultiRangeRef MultiRangeBufferCache::Get(const Device& device, Scheduler& schedu
     entry.geometry = geometry;
     entry.content = content;
     entry.size = total;
+    entry.owners.reserve(sources.size());
+    for (const MultiRangeSource& source : sources) {
+        entry.owners.push_back(source.handle);
+    }
     if (CanBindSparse(sources)) {
         entry.sparse_handle = CreateSparse(device, scheduler, sources, total);
-        if (entry.sparse_handle) {
-            entry.owners.reserve(sources.size());
-            for (const MultiRangeSource& source : sources) {
-                entry.owners.push_back(source.handle);
-            }
-        }
     }
     if (!entry.sparse_handle) {
         VkBufferUsageFlags flags = VK_BUFFER_USAGE_TRANSFER_SRC_BIT |

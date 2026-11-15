@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: Copyright 2026 Eglantine Emulator Project
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Decide what the run is and emit: kind tag title version refspec sha skip prerelease nightly
 # publish prev_tag branch. Run from any directory in a full checkout with GH_TOKEN set.
 set -euo pipefail
@@ -129,8 +132,8 @@ case "$kind" in
     display_release=$tag
     ;;
   daily)
-    # `branch` carries the daily branch (daily.yml dispatches ci.yml from it);
-    # fall back to the configured name for a push-style schedule run.
+    # Prefer the branch the daily was dispatched from; fall back to the
+    # configured daily branch for a schedule run on the default branch.
     display_branch=${branch:-$daily_branch}
     ;;
   branch) ;;

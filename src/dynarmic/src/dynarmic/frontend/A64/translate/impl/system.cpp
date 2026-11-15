@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eglantine Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -86,7 +89,15 @@ bool TranslatorVisitor::DSB(Imm<4> /*CRm*/) {
     return true;
 }
 
-bool TranslatorVisitor::DMB(Imm<4> /*CRm*/) {
+bool TranslatorVisitor::DMB(Imm<4> CRm) {
+#if defined(_M_X64) || defined(__x86_64__)
+    const u32 access = CRm.ZeroExtend() & 3U;
+    if (access == 1U || access == 2U) {
+        return true;
+    }
+#else
+    (void)CRm;
+#endif
     ir.DataMemoryBarrier();
     return true;
 }

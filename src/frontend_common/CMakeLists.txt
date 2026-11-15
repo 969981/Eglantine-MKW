@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright 2026 Eglantine Emulator Project
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 # SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -21,7 +24,9 @@ if (ENABLE_UPDATE_CHECKER)
     target_link_libraries(frontend_common PRIVATE nlohmann_json::nlohmann_json)
     target_sources(frontend_common PRIVATE
         update_checker.cpp
-        update_checker.h)
+        update_checker.h
+        update_installer.cpp
+        update_installer.h)
     target_link_libraries(frontend_common PRIVATE OpenSSL::SSL OpenSSL::Crypto)
 endif()
 

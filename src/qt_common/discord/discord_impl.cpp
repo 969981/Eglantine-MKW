@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eglantine Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -24,9 +27,7 @@
 
 #include "discord_impl.h"
 
-#ifdef YUZU_BUNDLED_OPENSSL
-#include <openssl/cert.h>
-#endif
+#include "common/net/ca_store.h"
 
 namespace DiscordRPC {
 
@@ -42,9 +43,7 @@ std::optional<std::string> FetchFromCovers(const std::string& file_name, bool wa
     client.set_read_timeout(3);
     client.set_follow_location(true);
 
-#ifdef YUZU_BUNDLED_OPENSSL
-    client.load_ca_cert_store(kCert, sizeof(kCert));
-#endif
+    Common::Net::ConfigureCaStore(client);
 
     const std::string path = std::string{COVERS_PATH} + file_name;
     const auto res = want_body ? client.Get(path) : client.Head(path);
@@ -161,9 +160,7 @@ void DiscordImpl::Update() {
         client.set_read_timeout(3);
         client.set_follow_location(true);
 
-#ifdef YUZU_BUNDLED_OPENSSL
-        client.load_ca_cert_store(kCert, sizeof(kCert));
-#endif
+        Common::Net::ConfigureCaStore(client);
 
         httplib::Request request{
             .method = "HEAD",

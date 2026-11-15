@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eglantine Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -76,6 +79,7 @@ VK_DEFINE_HANDLE(VmaPool)
     FEATURE(EXT, Robustness2, ROBUSTNESS_2, robustness2)                                           \
     FEATURE(EXT, TransformFeedback, TRANSFORM_FEEDBACK, transform_feedback)                        \
     FEATURE(EXT, VertexInputDynamicState, VERTEX_INPUT_DYNAMIC_STATE, vertex_input_dynamic_state)  \
+    FEATURE(KHR, CooperativeMatrix, COOPERATIVE_MATRIX, cooperative_matrix)                        \
     FEATURE(KHR, Maintenance5, MAINTENANCE_5, maintenance5)                                        \
     FEATURE(KHR, Maintenance6, MAINTENANCE_6, maintenance6)                                        \
     FEATURE(KHR, PipelineExecutableProperties, PIPELINE_EXECUTABLE_PROPERTIES,                     \
@@ -91,6 +95,7 @@ VK_DEFINE_HANDLE(VmaPool)
     EXTENSION(EXT, CONDITIONAL_RENDERING, conditional_rendering)                                   \
     EXTENSION(EXT, CONSERVATIVE_RASTERIZATION, conservative_rasterization)                         \
     EXTENSION(EXT, DEPTH_RANGE_UNRESTRICTED, depth_range_unrestricted)                             \
+    EXTENSION(EXT, EXTERNAL_MEMORY_HOST, external_memory_host)                                     \
     EXTENSION(EXT, MEMORY_BUDGET, memory_budget)                                                   \
     EXTENSION(EXT, ROBUSTNESS_2, robustness_2)                                                     \
     EXTENSION(EXT, SAMPLER_FILTER_MINMAX, sampler_filter_minmax)                                   \
@@ -324,6 +329,11 @@ public:
     }
 
     /// Returns the current driver version provided in Vulkan-formatted version numbers.
+    /// Returns the PCI device ID of the physical device.
+    u32 GetDeviceID() const {
+        return properties.properties.deviceID;
+    }
+
     u32 GetDriverVersion() const {
         return properties.properties.driverVersion;
     }
@@ -418,6 +428,7 @@ public:
 #define FN_MAX_LIMIT_LIST \
     FN_MAX_LIMIT_ELEM(ComputeSharedMemorySize) \
     FN_MAX_LIMIT_ELEM(PerStageDescriptorSampledImages) \
+    FN_MAX_LIMIT_ELEM(PerStageDescriptorStorageBuffers) \
     FN_MAX_LIMIT_ELEM(PerStageResources) \
     FN_MAX_LIMIT_ELEM(DescriptorSetSamplers) \
     FN_MAX_LIMIT_ELEM(DescriptorSetUniformBuffers) \
@@ -426,7 +437,10 @@ public:
     FN_MAX_LIMIT_ELEM(DescriptorSetStorageBuffersDynamic) \
     FN_MAX_LIMIT_ELEM(DescriptorSetSampledImages) \
     FN_MAX_LIMIT_ELEM(DescriptorSetStorageImages) \
-    FN_MAX_LIMIT_ELEM(DescriptorSetInputAttachments)
+    FN_MAX_LIMIT_ELEM(DescriptorSetInputAttachments) \
+    FN_MAX_LIMIT_ELEM(FramebufferWidth) \
+    FN_MAX_LIMIT_ELEM(FramebufferHeight) \
+    FN_MAX_LIMIT_ELEM(FramebufferLayers)
 #define FN_MAX_LIMIT_ELEM(name) \
     u32 GetMax##name() const { return properties.properties.limits.max##name; }
 FN_MAX_LIMIT_LIST
@@ -485,7 +499,13 @@ FN_MAX_LIMIT_LIST
 
     /// Returns true if the device supports float16 natively.
     bool IsFloat16Supported() const {
-        return features.shader_float16_int8.shaderFloat16;
+        return float16_math;
+    }
+
+    /// Whether the GPU itself supports float16 shaders, before guest workarounds turn it off.
+    /// Host-only shaders (frame generation) can still use it.
+    bool IsHostFloat16Supported() const {
+        return host_float16_supported;
     }
 
     /// Returns true if the device can run shaders built against the Vulkan memory model.
@@ -662,6 +682,12 @@ FN_MAX_LIMIT_LIST
         return extensions.workgroup_memory_explicit_layout &&
                features.workgroup_memory_explicit_layout.workgroupMemoryExplicitLayout16BitAccess &&
                features.features.shaderInt16;
+    }
+
+    /// Returns true if the guest's HMMA.16816.F16 can run on the host's cooperative matrices
+    /// (VK_KHR_cooperative_matrix with the same 16x8x16 shape on 16-bit floats, 32-lane subgroups).
+    bool IsCooperativeHmmaSupported() const {
+        return extensions.cooperative_matrix;
     }
 
     /// Returns true if the device supports VK_KHR_shader_quad_control.
@@ -970,6 +996,10 @@ FN_MAX_LIMIT_LIST
     bool IsSharedInt64AtomicsSupported() const {
         return extensions.shader_atomic_int64 &&
                features.shader_atomic_int64.shaderSharedInt64Atomics;
+    }
+
+    bool IsExtExternalMemoryHost() const {
+        return extensions.external_memory_host;
     }
 
     bool IsExtConditionalRendering() const {
@@ -1306,6 +1336,7 @@ private:
         VkPhysicalDeviceMaintenance5PropertiesKHR maintenance5{};
         VkPhysicalDeviceDepthStencilResolveProperties depth_stencil_resolve{};
         VkPhysicalDeviceCustomBorderColorPropertiesEXT custom_border_color{};
+        VkPhysicalDeviceCooperativeMatrixPropertiesKHR cooperative_matrix{};
 
         VkPhysicalDeviceProperties properties{};
     };
@@ -1322,11 +1353,13 @@ private:
     bool is_blit_depth24_stencil8_supported{}; ///< Support for blitting from and to D24S8.
     bool is_blit_depth32_stencil8_supported{}; ///< Support for blitting from and to D32S8.
     bool is_warp_potentially_bigger{};         ///< Host warp size can be bigger than guest.
+    bool float16_math{};                       ///< Shaders may do float16 arithmetic.
     bool is_integrated{};                      ///< Is GPU an iGPU.
     bool is_virtual{};                         ///< Is GPU a virtual GPU.
     bool is_non_gpu{};                         ///< Is SoftwareRasterizer, FPGA, non-GPU device.
     bool has_broken_compute{};                 ///< Compute shaders can cause crashes
     bool has_broken_cube_compatibility{};      ///< Has broken cube compatibility bit
+    bool host_float16_supported{};             ///< shaderFloat16 as the driver reported it
     bool has_broken_descriptor_aliasing{};     ///< Miscompiles descriptors aliased on one binding
     bool has_broken_parallel_compiling{};      ///< Has broken parallel shader compiling.
     bool has_renderdoc{};                      ///< Has RenderDoc attached

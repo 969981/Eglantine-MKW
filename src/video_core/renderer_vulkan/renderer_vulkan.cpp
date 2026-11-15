@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eglantine Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -14,6 +17,7 @@
 
 #include <fmt/ranges.h>
 
+#include "common/driver_shader_cache.h"
 #include "common/logging.h"
 #include <ranges>
 #include "common/scope_exit.h"
@@ -220,6 +224,9 @@ void RendererVulkan::Composite(std::span<const Tegra::FramebufferConfig> framebu
 
     RenderScreenshot(framebuffers);
     Frame* frame = present_manager.GetRenderFrame();
+    frame->is_generated = false;
+    frame->generation_index = 0;
+    frame->generation_count = 0;
 
     scheduler.RequestOutsideRenderPassOperationContext();
     blit_swapchain.DrawToFrame(device, rasterizer, frame, framebuffers,
@@ -235,7 +242,13 @@ void RendererVulkan::Composite(std::span<const Tegra::FramebufferConfig> framebu
 
     const size_t generated_frames = frame_gen.GeneratedFrameCount();
     for (size_t generation = 0; generation < generated_frames; ++generation) {
-        Frame* generated = present_manager.GetRenderFrame();
+        Frame* generated = present_manager.TryGetRenderFrame();
+        if (!generated) {
+            break;
+        }
+        generated->is_generated = true;
+        generated->generation_index = static_cast<u32>(generation);
+        generated->generation_count = static_cast<u32>(generated_frames);
         blit_swapchain.PrepareFrame(device, generated, render_window.GetFramebufferLayout());
         frame_gen.GenerateInto(device, generated, generation);
         scheduler.Flush(*generated->render_ready);
@@ -271,6 +284,7 @@ void RendererVulkan::Report() const {
     LOG_INFO(Render_Vulkan, "Device: {}", model_name);
     LOG_INFO(Render_Vulkan, "Vulkan: {}", api_version);
     LOG_INFO(Render_Vulkan, "Available VRAM: {:.2f} GiB", available_vram);
+    LOG_INFO(Render_Vulkan, "{}", Common::DriverShaderCacheDescription());
 }
 
 vk::Buffer RendererVulkan::RenderToBuffer(std::span<const Tegra::FramebufferConfig> framebuffers,

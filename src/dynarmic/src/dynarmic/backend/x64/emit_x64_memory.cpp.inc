@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eglantine Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -74,6 +77,7 @@ FakeCall AxxEmitX64::FastmemCallback(u64 rip_) {
             const DoNotFastmemMarker marker{iter->location, static_cast<unsigned>(iter->inst_name)};
             do_not_fastmem.insert(marker);
             InvalidateBasicBlocks({std::get<0>(marker)});
+            g_jit_stats.fastmem_recompiles.fetch_add(1, std::memory_order_relaxed);
         }
         return result;
     }

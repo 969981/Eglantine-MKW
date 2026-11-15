@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eglantine Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -6,6 +9,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <utility>
 #include <vector>
 
@@ -19,21 +23,24 @@ public:
     ~InvalidationAccumulator() = default;
 
     void Add(GPUVAddr address, size_t size) noexcept {
-        auto const end_address = start_address + accumulated_size;
-        if (!(address >= start_address && address + size <= end_address)) {
-            size = ((address + size + atomicity_size_mask) & atomicity_mask) - address;
-            address = address & atomicity_mask;
-            if (start_address == 0) {
-                start_address = address;
-                accumulated_size = size;
-                // will now have collected as this point
-            } else if (address != end_address) {
-                buffer.emplace_back(start_address, accumulated_size);
-                start_address = address;
-                accumulated_size = size;
-            } else {
-                accumulated_size += size;
-            }
+        const GPUVAddr end_address = start_address + accumulated_size;
+        if (address >= start_address && address + size <= end_address) {
+            return;
+        }
+        const GPUVAddr aligned_end = (address + size + atomicity_size_mask) & atomicity_mask;
+        address &= atomicity_mask;
+        size = aligned_end - address;
+        if (start_address == 0) {
+            start_address = address;
+            accumulated_size = size;
+            // will now have collected as this point
+        } else if (address <= end_address && aligned_end >= start_address) {
+            start_address = (std::min)(start_address, address);
+            accumulated_size = (std::max)(end_address, aligned_end) - start_address;
+        } else {
+            buffer.emplace_back(start_address, accumulated_size);
+            start_address = address;
+            accumulated_size = size;
         }
     }
 

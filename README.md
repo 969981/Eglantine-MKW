@@ -39,7 +39,7 @@ It's written in C++ with portability in mind, with builds for Windows, Linux and
 
 ## Compatibility
 
-The emulator is capable of running Mario Kart World at decent/full speed depending on specs and configurations, and Splatoon Raiders at variable performances
+The emulator is capable of running Mario Kart World at full speed on most specs, Splatoon Raiders and OOT also run fine.
 
 A list of supported games will be available in future. Please be patient.
 
@@ -71,14 +71,14 @@ If you would prefer to support us in a different way, please join our [Discord](
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=djihads80%2Feglantine&type=date&legend=bottom-right">
+<a href="https://www.star-history.com/?repos=eglantine-community%2Feglantine&type=date&legend=bottom-right">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=djihads80/eglantine&type=date&theme=dark&legend=bottom-right" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=djihads80/eglantine&type=date&legend=bottom-right" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=djihads80/eglantine&type=date&legend=bottom-right" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=eglantine-community/eglantine&type=date&theme=dark&legend=bottom-right" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=eglantine-community/eglantine&type=date&legend=bottom-right" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=eglantine-community/eglantine&type=date&legend=bottom-right" />
  </picture>
 </a>
 
 ## License
 
-Eglantine is licensed under the GPLv3 (or any later version). Refer to the [LICENSE.txt](https://github.com/Djihads80/Eglantine/blob/nx2/LICENSE.txt) file.
+Eglantine is licensed under the GPLv3 (or any later version). Refer to the [LICENSE.txt](https://github.com/Eglantine-Community/Eglantine/blob/nx2/LICENSE.txt) file.

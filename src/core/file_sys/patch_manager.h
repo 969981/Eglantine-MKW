@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eglantine Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -71,6 +74,7 @@ public:
     // Currently tracked NSO patches:
     // - IPS
     // - IPSwitch
+    // - Built-in patches, keyed by title and build id
     [[nodiscard]] std::vector<u8> PatchNSO(const std::vector<u8>& nso,
                                            const std::string& name) const;
 

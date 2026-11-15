@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright 2026 Eglantine Emulator Project
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 # SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -61,10 +64,12 @@ add_library(
     bit_field.h
     bit_util.h
     bounded_threadsafe_queue.h
+    progress_counter.h
     cityhash.cpp
     cityhash.h
     common_funcs.h
     common_types.h
+    cpu_layout.h
     concepts.h
     container_hash.h
     demangle.cpp
@@ -154,6 +159,8 @@ add_library(
     swap.h
     thread.cpp
     thread.h
+    driver_shader_cache.cpp
+    driver_shader_cache.h
     adpf.cpp
     adpf.h
     thread_queue_list.h
@@ -180,7 +187,7 @@ add_library(
     cpu_features.cpp
     cpu_features.h
     httplib.h
-    net/net.h net/net.cpp
+    net/ca_store.h net/net.h net/net.cpp
     container/unordered_map.h container/unordered_set.h)
 
 set_source_files_properties(zbic_compression.cpp PROPERTIES
@@ -188,7 +195,7 @@ set_source_files_properties(zbic_compression.cpp PROPERTIES
     COMPILE_OPTIONS "$<$<CXX_COMPILER_ID:AppleClang,Clang,GNU>:-Wno-unused-function;-Wno-missing-declarations;-Wno-shadow>;$<$<CXX_COMPILER_ID:MSVC>:/wd4505;/wd5245>")
 
 if(WIN32)
-    target_sources(common PRIVATE windows/timer_resolution.cpp
+    target_sources(common PRIVATE windows/cpu_layout.cpp windows/cpu_layout.h windows/timer_resolution.cpp
         windows/timer_resolution.h)
     target_link_libraries(common PRIVATE ntdll)
 endif()

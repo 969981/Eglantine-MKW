@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eglantine Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -61,15 +64,18 @@ public:
         return static_cast<bool>(pipeline);
     }
 
+    /// Whether no build of this pipeline is left queued on a worker thread, which holds it
+    [[nodiscard]] bool IsBuildTaskDone() const noexcept {
+        return build_task_done.load(std::memory_order::acquire);
+    }
+
+    [[nodiscard]] bool IsBuilt() const noexcept {
+        return is_built.load(std::memory_order::acquire);
+    }
+
     [[nodiscard]] u64 ShaderHash() const noexcept {
         return shader_hash;
     }
-
-    /// Native constant buffer pointer slots taken as storage buffers, and the ones left out
-    /// because they held null when this pipeline was built (rebuilt once one is filled).
-    std::vector<u64> pointer_slots;
-    std::vector<u64> null_pointer_slots;
-    u32 pointer_rebuilds{};
 
     /// Storage images written by the last configured dispatch, kept while a frame dump runs.
     [[nodiscard]] std::span<const VideoCommon::ImageViewId> WrittenImages() const noexcept {
@@ -80,11 +86,26 @@ public:
         u32 tic;
         VideoCommon::ImageViewId id;
         VideoCommon::SamplerId sampler;
+        bool gpu_modified{};
+        bool recent_gpu_modified{};
     };
 
-    /// The textures sampled by the last configured dispatch, kept while a sampled frame dump runs.
+    /// Sampled textures, kept during frame dumps or writer diagnostics. Diagnostic state is
+    /// captured before the dispatch's own storage-image writes are marked.
     [[nodiscard]] std::span<const SampledImage> SampledImages() const noexcept {
         return sampled_images;
+    }
+
+    [[nodiscard]] size_t StorageBufferCount() const noexcept {
+        return info.storage_buffers_descriptors.size();
+    }
+
+    [[nodiscard]] u32 StorageImageCount() const noexcept {
+        u32 count{};
+        for (const auto& desc : info.image_descriptors) {
+            count += desc.count;
+        }
+        return count;
     }
 
 private:
@@ -98,6 +119,8 @@ private:
     Shader::Info info;
     u64 shader_hash{};
     u32 num_descriptor_entries{};
+    bool has_image_resources{false};
+    bool has_rescaling_push_constants{false};
     boost::container::small_vector<VideoCommon::ImageViewId, 8> written_images;
     std::vector<SampledImage> sampled_images;
 
@@ -108,6 +131,11 @@ private:
     bool uses_push_descriptor{false};
     bool uses_descriptor_buffer{false};
     DescriptorBufferLayout descriptor_buffer_layout;
+    std::vector<DescriptorUpdateEntry> last_descriptor_payload;
+    std::vector<u8> last_descriptor_bytes;
+    VkDeviceSize last_descriptor_buffer_offset{};
+    u32 last_descriptor_buffer_chunk{};
+    u64 last_descriptor_buffer_generation{};
     DescriptorAllocator descriptor_allocator;
     vk::PipelineLayout pipeline_layout;
     vk::DescriptorUpdateTemplate descriptor_update_template;
@@ -115,6 +143,7 @@ private:
 
     std::function<void()> build_task;
     std::atomic_bool build_claimed{false};
+    std::atomic_bool build_task_done{true};
     std::condition_variable build_condvar;
     std::mutex build_mutex;
     std::atomic_bool is_built{false};

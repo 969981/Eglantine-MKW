@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eglantine Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -14,7 +17,7 @@ Id SubgroupScope(EmitContext& ctx) {
 }
 
 bool StageSupportsSubgroups(EmitContext& ctx) {
-    return ctx.profile.SupportsSubgroupStage(ctx.stage);
+    return ctx.SupportsSubgroups();
 }
 
 Id GetThreadId(EmitContext& ctx) {

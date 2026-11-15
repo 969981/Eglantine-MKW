@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eglantine Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -8,6 +11,7 @@
 
 #include <array>
 #include <atomic>
+#include <set>
 #include <vector>
 #include <QByteArray>
 #include <QMetaType>
@@ -110,6 +114,7 @@ struct Values {
                                                            true};
 
     Setting<bool> first_start{linkage, true, "firstStart", Category::Ui};
+    std::set<u64> skipped_recommended_settings;
     Setting<bool> pause_when_in_background{linkage,
                                            false,
                                            "pauseWhenInBackground",
@@ -139,6 +144,12 @@ struct Values {
                                       true};
 
     Setting<bool> check_for_updates{linkage, true, "check_for_updates", Category::UiGeneral};
+
+    // Unset until a tagged release or daily build first runs, then only the user changes it
+    Setting<Settings::UpdateChannel> update_channel{linkage, Settings::UpdateChannel::Unset,
+                                                    "update_channel", Category::UiGeneral};
+    // Tag of the release the user chose not to be reminded of
+    Setting<std::string> skipped_update{linkage, {}, "skipped_update", Category::Ui};
 
     // Linux/MinGW may support (requires libdl support)
     SwitchableSetting<bool> enable_gamemode{linkage,

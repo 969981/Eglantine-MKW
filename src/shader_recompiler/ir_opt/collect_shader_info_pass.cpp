@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eglantine Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -388,6 +391,7 @@ void VisitUsages(Info& info, IR::Inst& inst) {
     case IR::Opcode::GlobalAtomicOr32:
     case IR::Opcode::GlobalAtomicXor32:
     case IR::Opcode::GlobalAtomicExchange32:
+    case IR::Opcode::GlobalAtomicCompareExchange32:
     case IR::Opcode::GlobalAtomicIAdd64:
     case IR::Opcode::GlobalAtomicSMin64:
     case IR::Opcode::GlobalAtomicUMin64:
@@ -457,9 +461,13 @@ void VisitUsages(Info& info, IR::Inst& inst) {
     case IR::Opcode::SetAttributeIndexed:
         info.stores_indexed_attributes = true;
         break;
-    case IR::Opcode::SetFragColor:
-        info.stores_frag_color[inst.Arg(0).U32()] = true;
+    case IR::Opcode::SetFragColor: {
+        const u32 render_target{inst.Arg(0).U32()};
+        info.stores_frag_color[render_target] = true;
+        info.frag_color_components[render_target] |=
+            static_cast<u8>(1U << inst.Arg(1).U32());
         break;
+    }
     case IR::Opcode::SetSampleMask:
         info.stores_sample_mask = true;
         break;
@@ -635,6 +643,7 @@ void VisitUsages(Info& info, IR::Inst& inst) {
     case IR::Opcode::StorageAtomicOr32:
     case IR::Opcode::StorageAtomicXor32:
     case IR::Opcode::StorageAtomicExchange32:
+    case IR::Opcode::StorageAtomicCompareExchange32:
         info.used_storage_buffer_types |= IR::Type::U32;
         break;
     case IR::Opcode::LoadStorage64:

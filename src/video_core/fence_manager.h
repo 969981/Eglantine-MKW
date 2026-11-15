@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eglantine Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -79,9 +82,9 @@ public:
         uncommitted_operations.emplace_back(std::move(func));
     }
 
-    void SignalFence(std::function<void()>&& func) {
+    void SignalFence(std::function<void()>&& func, bool force_completion = false) {
         Nx2Profile::Scope profile_scope{Nx2Profile::Zone::Fence};
-        const bool delay_fence = Settings::IsGPUFenceBehaviorDefault() ? Settings::IsGPULevelHigh() : Settings::IsGPUFenceBehaviorBalanced() || Settings::IsGPUFenceBehaviorAccurate();
+        const bool delay_fence = force_completion || (Settings::IsGPUFenceBehaviorDefault() ? Settings::IsGPULevelHigh() : Settings::IsGPUFenceBehaviorBalanced() || Settings::IsGPUFenceBehaviorAccurate());
         if constexpr (!can_async_check) {
             TryReleasePendingFences<false>();
         }
@@ -93,7 +96,7 @@ public:
             return;
         }
         skipped_fences = 0;
-        should_flush |= query_cache.HasUncommittedFlushes();
+        should_flush |= force_completion || query_cache.HasUncommittedFlushes();
         query_cache.CommitAsyncFlushes();
         TFence new_fence = CreateFence(!should_flush);
         if constexpr (can_async_check) {
@@ -289,8 +292,14 @@ private:
             }
             if (buffer_pops != 0) {
                 std::scoped_lock lock{buffer_cache.mutex};
+                const u64 start = Nx2Profile::Enabled() ? Nx2Profile::Now() : 0;
                 for (size_t i = 0; i < buffer_pops; ++i) {
                     buffer_cache.PopAsyncFlushes();
+                }
+                if (Nx2Profile::Enabled()) {
+                    Nx2Profile::g_fencing_lock_ns.fetch_add(Nx2Profile::Now() - start,
+                                                            std::memory_order_relaxed);
+                    Nx2Profile::g_fencing_pops.fetch_add(buffer_pops, std::memory_order_relaxed);
                 }
             }
             // Queries and operations keep their per-fence order.

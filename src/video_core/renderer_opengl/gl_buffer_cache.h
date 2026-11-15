@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eglantine Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -205,6 +208,10 @@ public:
 
     u32 GetStorageBufferAlignment() const {
         return static_cast<u32>(device.GetShaderStorageBufferAlignment());
+    }
+
+    u64 GetMaxStorageBufferRange() const {
+        return device.GetMaxShaderStorageBlockSize();
     }
 
 private:

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eglantine Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -30,11 +33,12 @@ extern const bool g_is_nightly_build;
 
 extern const char g_build_auto_update_website[];
 extern const char g_build_auto_update_api[];
-extern const char g_build_auto_update_api_path[];
 extern const char g_build_auto_update_repo[];
-extern const char g_build_auto_update_stable_api[];
-extern const char g_build_auto_update_stable_api_path[];
-extern const char g_build_auto_update_stable_repo[];
+extern const char g_build_release_platform[];
+
+// g_build_name plus the identity CI composed for this build (g_display_version),
+// with the packaging flavour in parentheses when there is one.
+std::string BuildDisplayName();
 
 // g_build_name plus the identity CI composed for this build (g_display_version),
 // with the packaging flavour in parentheses when there is one.

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eglantine Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -185,7 +188,8 @@ GraphicsPipeline::GraphicsPipeline(const Device& device, TextureCache& texture_c
                                    const std::array<const Shader::Info*, 5>& infos,
                                    const GraphicsPipelineKey& key_, bool force_context_flush)
     : texture_cache{texture_cache_}, buffer_cache{buffer_cache_}, program_manager{program_manager_},
-      state_tracker{state_tracker_}, key{key_} {
+      state_tracker{state_tracker_}, key{key_},
+      storage_buffer_alignment{device.GetShaderStorageBufferAlignment()} {
     if (shader_notify) {
         shader_notify->MarkShaderBuilding();
     }
@@ -318,7 +322,8 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
                                            return cbuf < cbufs.size() && cbufs[cbuf].enabled
                                                       ? cbufs[cbuf].address
                                                       : GPUVAddr{};
-                                       }),
+                                       },
+                                       storage_buffer_alignment),
                                    via_header_index);
             }
             ASSERT(cbufs[desc.cbuf_index].enabled);
