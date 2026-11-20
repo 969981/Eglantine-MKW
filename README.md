@@ -65,9 +65,12 @@ You can download the latest releases from [here](https://github.com/Djihads80/Eg
 
 ## Support
 
-We currently do not take in any donations for the time being
+We currently take donations on [Open Collective](https://opencollective.com/eglantine-community).
+If you don't have money you can still support us by joining the [Discord Server](https://discord.gg/XkS5NVPTUY)
 
-If you would prefer to support us in a different way, please join our [Discord](https://discord.gg/XkS5NVPTUY)
+Contributions are voluntary donations. They do not buy features, priority support, early access, bug fixes or any influence over the roadmap. Roadmap decisions stay with the maintainers.
+
+We do not accept contributions that are tied to, or conditioned on, anything that would facilitate piracy or break the law. Eglantine does not distribute copyrighted games, firmware, encryption keys or any other proprietary Nintendo material, and we do not ask or encourage anyone to share them. Eglantine is an independent project and is not affiliated with, endorsed by or sponsored by Nintendo.
 
 ## Star History
 
