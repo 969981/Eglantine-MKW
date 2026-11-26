@@ -210,6 +210,7 @@ private:
     bool WaitQueryResultsFence(DAddr addr);
 
     /// Frame dump: starts a pass when the framebuffer changed (EDEN_NX2_FRAME_DUMP).
+    void CaptureGraphicsFrameDump(const GraphicsPipeline& pipeline);
     void FrameDumpPass(const Framebuffer* framebuffer);
     /// Records the uniform and storage buffers of the current draw or dispatch for the frame dump.
     bool FrameDumpBuffers(bool compute, std::span<const u64> shader_hashes);

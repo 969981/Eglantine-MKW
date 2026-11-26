@@ -1066,27 +1066,7 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
         report_failure("configure failed");
         return;
     }
-    if (frame_dump.Capturing()) {
-        frame_dump.NoteKeys(pipeline->Key().unique_hashes,
-                            pipeline_cache.GraphicsNativeKeys(pipeline->Key().unique_hashes));
-        FrameDumpPass(texture_cache.GetFramebuffer());
-        frame_dump.NoteDraw(pipeline->Key().unique_hashes);
-        bool recorded = false;
-        if (frame_dump.CapturingSampled()) {
-            boost::container::small_vector<FrameDump::Sampled, 16> sampled;
-            for (const auto& image : pipeline->SampledImages()) {
-                sampled.push_back({image.stage, image.tic, &texture_cache.GetImageView(image.id),
-                                   &texture_cache.GetSampler(image.sampler)});
-            }
-            recorded = frame_dump.NoteSampled(sampled);
-        }
-        if (frame_dump.CapturingBuffers()) {
-            recorded |= FrameDumpBuffers(false, pipeline->Key().unique_hashes);
-        }
-        if (recorded) {
-            scheduler.RequestRenderpass(texture_cache.GetFramebuffer());
-        }
-    }
+    CaptureGraphicsFrameDump(*pipeline);
 
     NoteCameraMotionDraw();
     {
@@ -3015,6 +2995,32 @@ std::optional<FramebufferTextureInfo> RasterizerVulkan::AccelerateDisplay(
 void RasterizerVulkan::LoadDiskResources(u64 title_id, std::stop_token stop_loading,
                                          const VideoCore::DiskResourceLoadCallback& callback) {
     pipeline_cache.LoadDiskResources(title_id, stop_loading, callback);
+}
+
+void RasterizerVulkan::CaptureGraphicsFrameDump(const GraphicsPipeline& pipeline) {
+    if (frame_dump.Capturing()) {
+        const auto& shader_hashes = pipeline.ShaderHashes();
+        frame_dump.NoteKeys(shader_hashes,
+                            pipeline_cache.GraphicsNativeKeys(shader_hashes));
+        FrameDumpPass(texture_cache.GetFramebuffer());
+        frame_dump.NoteDraw(shader_hashes);
+        bool recorded = false;
+        if (frame_dump.CapturingSampled()) {
+            boost::container::small_vector<FrameDump::Sampled, 16> sampled;
+            for (const auto& image : pipeline.SampledImages()) {
+                sampled.push_back({image.stage, image.tic, &texture_cache.GetImageView(image.id),
+                                   &texture_cache.GetSampler(image.sampler)});
+            }
+            recorded = frame_dump.NoteSampled(sampled);
+        }
+        if (frame_dump.CapturingBuffers()) {
+            const bool buffers_recorded = FrameDumpBuffers(false, shader_hashes);
+            recorded = recorded || buffers_recorded;
+        }
+        if (recorded) {
+            scheduler.RequestRenderpass(texture_cache.GetFramebuffer());
+        }
+    }
 }
 
 bool RasterizerVulkan::FrameDumpBuffers(bool compute, std::span<const u64> shader_hashes) {
