@@ -74,6 +74,23 @@ jobs:
           # The upstream's own workflow files are excluded because GITHUB_TOKEN
           # cannot update workflow files without the elevated workflows scope.
           git read-tree --reset -u "$source_sha"
+          # The reviewed nx2 snapshot failed MSVC on ShaderHashes(). Use its
+          # equivalent public Key().unique_hashes accessor, without changing dump behavior.
+          if [ "$source_sha" = "835019fec5548748034a1449575cc7d37a4cfa16" ]; then
+            file=src/video_core/renderer_vulkan/vk_rasterizer.cpp
+            test "$(git hash-object "$file")" = "f7a1b19f43dcbe33dfce5a1c80496a8ed95b9248"
+            python3 - <<'PY'
+          from pathlib import Path
+          p = Path("src/video_core/renderer_vulkan/vk_rasterizer.cpp")
+          source = p.read_bytes()
+          old = b"pipeline->ShaderHashes()"
+          new = b"pipeline->Key().unique_hashes"
+          if source.count(old) != 4:
+              raise SystemExit("Unexpected Vulkan diagnostic call sites")
+          p.write_bytes(source.replace(old, new))
+          PY
+            git add "$file"
+          fi
           git rm -r -f --cached --ignore-unmatch .github/workflows
           rm -rf .github/workflows
           mkdir -p .github/workflows
@@ -176,6 +193,7 @@ jobs:
           Upstream commit: $SOURCE_SHA
           Mirrored source commit: $MIRROR_SHA
           Upstream: https://github.com/Eglantine-Community/Eglantine
+          Compatibility: nx2 835019fec554 uses the equivalent public pipeline key accessor in the fork snapshot.
           Mirrored source: https://github.com/$GITHUB_REPOSITORY/tree/upstream-eglantine-nx2
           No games, firmware, or encryption keys are included.
           EOF
@@ -193,6 +211,7 @@ jobs:
 
           Source snapshot: [mirror $MIRROR_SHA](https://github.com/$GITHUB_REPOSITORY/commit/$MIRROR_SHA).
           Upstream CI workflow files are not mirrored; this repository manages its own automation.
+          The reviewed nx2 835019fec554 source snapshot includes a minimal MSVC compatibility patch using the public pipeline key accessor.
           Historical Eglantine-MKW development branches are left unchanged.
 
           Windows x64 portable ZIP includes GUI, CLI and Qt runtime.
