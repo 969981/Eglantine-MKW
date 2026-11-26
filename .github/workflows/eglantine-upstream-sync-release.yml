@@ -3,7 +3,7 @@ name: Eglantine | Schedule isolated nx2 branch
 # GitHub only runs scheduled workflows from the default branch.
 # This tiny scheduler delegates all sync/build/release logic to the dedicated branch.
 # It makes no modifications to any MKW source files or historical branches.
-# 2026-11-26: rerun the dedicated nx2 pipeline with the reviewed Vulkan accessor fix.
+# 2026-11-26: validate the dedicated nx2 non-template graphics frame-dump fix.
 on:
   push:
     branches:
