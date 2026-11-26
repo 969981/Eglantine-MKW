@@ -74,22 +74,50 @@ jobs:
           # The upstream's own workflow files are excluded because GITHUB_TOKEN
           # cannot update workflow files without the elevated workflows scope.
           git read-tree --reset -u "$source_sha"
-          # The reviewed nx2 snapshot failed MSVC on ShaderHashes(). Use its
-          # equivalent public Key().unique_hashes accessor, without changing dump behavior.
+          # MSVC rejects the last GraphicsPipeline access inside the templated
+          # PrepareDraw even though the header declares both public accessors.
+          # Extract the unchanged capture block into a non-template member,
+          # evaluate shader hashes once, and preserve frame-dump behavior.
           if [ "$source_sha" = "835019fec5548748034a1449575cc7d37a4cfa16" ]; then
             file=src/video_core/renderer_vulkan/vk_rasterizer.cpp
+            header=src/video_core/renderer_vulkan/vk_rasterizer.h
             test "$(git hash-object "$file")" = "f7a1b19f43dcbe33dfce5a1c80496a8ed95b9248"
+            test "$(git hash-object "$header")" = "8eb6f090f8c60b34e1b5601d572ec46a4cf29d2a"
+            test "$(git hash-object src/video_core/renderer_vulkan/vk_graphics_pipeline.h)" = "16293194a498584653345305dcae6efb3a023679"
             python3 - <<'PY'
           from pathlib import Path
-          p = Path("src/video_core/renderer_vulkan/vk_rasterizer.cpp")
+          root = Path("src/video_core/renderer_vulkan")
+          p = root / "vk_rasterizer.cpp"
+          h = root / "vk_rasterizer.h"
           source = p.read_bytes()
-          old = b"pipeline->ShaderHashes()"
-          new = b"pipeline->Key().unique_hashes"
-          if source.count(old) != 4:
-              raise SystemExit("Unexpected Vulkan diagnostic call sites")
-          p.write_bytes(source.replace(old, new))
+          start = b"    if (frame_dump.Capturing()) {\n        frame_dump.NoteKeys(pipeline->ShaderHashes(),"
+          end = b"\n\n    NoteCameraMotionDraw();"
+          if source.count(start) != 1:
+              raise SystemExit("Unexpected graphics frame dump start")
+          a = source.index(start)
+          b = source.index(end, a)
+          block = source[a:b]
+          if block.count(b"pipeline->ShaderHashes()") != 4 or block.count(b"pipeline->SampledImages()") != 1:
+              raise SystemExit("Unexpected frame dump layout")
+          block = block.replace(b"    if (frame_dump.Capturing()) {\n", b"    if (frame_dump.Capturing()) {\n        const auto& shader_hashes = pipeline.ShaderHashes();\n", 1)
+          block = block.replace(b"pipeline->ShaderHashes()", b"shader_hashes")
+          block = block.replace(b"pipeline->SampledImages()", b"pipeline.SampledImages()")
+          block = block.replace(b"recorded |= FrameDumpBuffers(false, shader_hashes);", b"const bool buffers_recorded = FrameDumpBuffers(false, shader_hashes);\n            recorded = recorded || buffers_recorded;")
+          source = source[:a] + b"    CaptureGraphicsFrameDump(*pipeline);" + source[b:]
+          anchor = b"bool RasterizerVulkan::FrameDumpBuffers(bool compute, std::span<const u64> shader_hashes) {"
+          if source.count(anchor) != 1:
+              raise SystemExit("Unexpected FrameDumpBuffers definition")
+          helper = b"void RasterizerVulkan::CaptureGraphicsFrameDump(const GraphicsPipeline& pipeline) {\n" + block + b"\n}\n\n"
+          p.write_bytes(source.replace(anchor, helper + anchor, 1))
+          header = h.read_bytes()
+          anchor = b"    void FrameDumpPass(const Framebuffer* framebuffer);"
+          if header.count(anchor) != 1:
+              raise SystemExit("Unexpected FrameDumpPass declaration")
+          h.write_bytes(header.replace(anchor, b"    void CaptureGraphicsFrameDump(const GraphicsPipeline& pipeline);\n" + anchor, 1))
+          print("Extracted graphics frame dump into non-template member; preserved shader keys, sampled images, buffers and renderpass requests")
           PY
-            git add "$file"
+            git add "$file" "$header"
+            git diff --cached --check -- "$file" "$header"
           fi
           git rm -r -f --cached --ignore-unmatch .github/workflows
           rm -rf .github/workflows
@@ -193,7 +221,7 @@ jobs:
           Upstream commit: $SOURCE_SHA
           Mirrored source commit: $MIRROR_SHA
           Upstream: https://github.com/Eglantine-Community/Eglantine
-          Compatibility: nx2 835019fec554 uses the equivalent public pipeline key accessor in the fork snapshot.
+          Compatibility: nx2 835019fec554 extracts graphics frame-dump capture into a non-template member in the fork snapshot.
           Mirrored source: https://github.com/$GITHUB_REPOSITORY/tree/upstream-eglantine-nx2
           No games, firmware, or encryption keys are included.
           EOF
@@ -211,7 +239,7 @@ jobs:
 
           Source snapshot: [mirror $MIRROR_SHA](https://github.com/$GITHUB_REPOSITORY/commit/$MIRROR_SHA).
           Upstream CI workflow files are not mirrored; this repository manages its own automation.
-          The reviewed nx2 835019fec554 source snapshot includes a minimal MSVC compatibility patch using the public pipeline key accessor.
+          The reviewed nx2 835019fec554 source snapshot includes a minimal MSVC compatibility patch extracting graphics frame-dump capture into a non-template member.
           Historical Eglantine-MKW development branches are left unchanged.
 
           Windows x64 portable ZIP includes GUI, CLI and Qt runtime.
